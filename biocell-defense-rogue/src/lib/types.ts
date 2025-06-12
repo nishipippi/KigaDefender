@@ -2,12 +2,14 @@ export type Unit = {
   id: string; // ユニットの一意なID
   x: number;  // 盤面上のX座標 (列)
   y: number;  // 盤面上のY座標 (行)
-  type: 'basic'; // 'basic', 'archer', 'shield', etc.
+  type: 'basic' | 'archer' | 'shield'; // 'basic', 'archer', 'shield', etc.
   hp: number;
   attackPower: number; // 追加
   attackSpeed: number; // 追加 (秒間攻撃回数)
   range: number;       // 追加 (マス数)
   lastAttackTime: number; // 追加: 最後に攻撃したタイムスタンプ
+  cost: number; // 追加: ショップでの購入コスト
+  level: number; // 追加: ユニットのレベル
 };
 
 // セルの状態を表す型 (ユニットが存在するかどうか)
@@ -37,3 +39,20 @@ export type Projectile = { // 新規追加
   currentY: number;
   targetId: string; // ターゲットの敵のIDを保存
 };
+
+export interface PlayerResources {
+  cultureFluid: number;
+  xp: number;
+  level: number;
+}
+
+export interface Mutation {
+  id: string;
+  name: string;
+  description: string;
+  applyEffect: (resources: PlayerResources, units: Unit[], enemies: Enemy[]) => {
+    newResources: PlayerResources;
+    newUnits: Unit[];
+    newEnemies: Enemy[];
+  };
+}

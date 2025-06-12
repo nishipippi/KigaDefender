@@ -1,11 +1,17 @@
 'use client'; // Client Componentとしてマーク
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Unit, Enemy, Projectile } from '@/lib/types'; // Projectileを追加
+import { Unit, Enemy, Projectile, PlayerResources, Mutation } from '@/lib/types';
+import Shop from './Shop'; // Shopコンポーネントをインポート
+import MutationSelection from './MutationSelection'; // MutationSelectionコンポーネントをインポート
+import GameOverScreen from './GameOverScreen'; // GameOverScreenコンポーネントをインポート
 
 const CELL_SIZE = 50;
 const BOARD_WIDTH = 12; // 20から12に変更
 const BOARD_HEIGHT = 20; // 12から20に変更
+
+// XPレベルアップに必要なXPの閾値 (仮の値)
+const XP_THRESHOLDS = [0, 100, 250, 500, 1000, 2000]; // レベル1, 2, 3, 4, 5...
 
 export default function GameBoard() {
   const [units, setUnits] = useState<Unit[]>([]);
@@ -15,32 +21,133 @@ export default function GameBoard() {
   const [currentWave, setCurrentWave] = useState(0); // 現在のウェーブ数
   const [isWaveActive, setIsWaveActive] = useState(false); // ウェーブがアクティブかどうか
   const [allEnemiesSpawned, setAllEnemiesSpawned] = useState(false); // すべての敵がスポーンしたかどうか
+  const [playerResources, setPlayerResources] = useState<PlayerResources>({ // 新規追加
+    cultureFluid: 50, // 初期培養液を増やす
+    xp: 0,
+    level: 1,
+  });
+  const [shopUnits, setShopUnits] = useState<Unit[]>([]); // ショップに並ぶユニット
+  const [selectedUnitToPlace, setSelectedUnitToPlace] = useState<Unit | null>(null); // 配置するユニット
+  const [availableMutations, setAvailableMutations] = useState<Mutation[] | null>(null); // 選択可能な突然変異
 
   const lastFrameTimeRef = useRef(0);
   const animationFrameIdRef = useRef<number | null>(null);
+
+  // 仮のユニット生成関数 (ショップ用)
+  const generateRandomUnit = useCallback((): Unit => {
+    // ユニットの種類を増やす場合はここを拡張
+    const unitTypes: ('basic' | 'archer' | 'shield')[] = ['basic', 'archer', 'shield'];
+    const randomType = unitTypes[Math.floor(Math.random() * unitTypes.length)];
+    const baseCost = 10; // 仮の基本コスト
+
+    return {
+      id: `shop-unit-${Date.now()}-${Math.random()}`,
+      x: -1, // ショップのユニットは盤面にいないので仮の値
+      y: -1,
+      type: randomType,
+      hp: 100,
+      attackPower: 20,
+      attackSpeed: 1,
+      range: 3,
+      lastAttackTime: 0,
+      cost: baseCost + Math.floor(Math.random() * 5), // コストにばらつき
+      level: 1, // 初期レベル
+    };
+  }, []);
+
+  // ショップの品揃えを生成
+  const generateShopUnits = useCallback(() => {
+    const newShopUnits: Unit[] = [];
+    for (let i = 0; i < 3; i++) { // 3つのユニットをショップに並べる
+      newShopUnits.push(generateRandomUnit());
+    }
+    setShopUnits(newShopUnits);
+  }, [generateRandomUnit]);
+
+  // ゲーム状態をリセットする関数
+  const resetGame = useCallback(() => {
+    setUnits([]);
+    setEnemies([]);
+    setProjectiles([]);
+    setLastSampleHp(100);
+    setCurrentWave(0);
+    setIsWaveActive(false);
+    setAllEnemiesSpawned(false);
+    setPlayerResources({
+      cultureFluid: 50,
+      xp: 0,
+      level: 1,
+    });
+    generateShopUnits(); // ショップを再生成
+    setAvailableMutations(null); // 突然変異選択をクリア
+  }, [generateShopUnits]);
+
+  // ユニット購入ロジック
+  const buyUnit = useCallback((unitToBuy: Unit) => {
+    if (playerResources.cultureFluid >= unitToBuy.cost) {
+      setPlayerResources(prev => ({
+        ...prev,
+        cultureFluid: prev.cultureFluid - unitToBuy.cost,
+      }));
+      setSelectedUnitToPlace({ ...unitToBuy, id: `placed-${Date.now()}-${Math.random()}` }); // 購入したユニットを配置待ち状態にする
+      setShopUnits(prevShopUnits => prevShopUnits.filter(u => u.id !== unitToBuy.id)); // ショップから削除
+    } else {
+      console.log("培養液が足りません！");
+    }
+  }, [playerResources.cultureFluid]);
+
+  // ショップリロールロジック
+  const rerollShop = useCallback(() => {
+    const rerollCost = 5; // 仮のリロールコスト
+    if (playerResources.cultureFluid >= rerollCost) {
+      setPlayerResources(prev => ({
+        ...prev,
+        cultureFluid: prev.cultureFluid - rerollCost,
+      }));
+      generateShopUnits(); // 新しい品揃えを生成
+    } else {
+      console.log("培養液が足りません！");
+    }
+  }, [playerResources.cultureFluid, generateShopUnits]);
 
   // ユニット配置/削除ロジック
   const handleCellClick = useCallback((x: number, y: number) => {
     setUnits(prevUnits => {
       const existingUnit = prevUnits.find(unit => unit.x === x && unit.y === y);
       if (existingUnit) {
-        return prevUnits.filter(unit => unit.id !== existingUnit.id);
+        // 既存ユニットの削除
+        // マージ進化のロジックをここに追加
+        if (selectedUnitToPlace &&
+            selectedUnitToPlace.type === existingUnit.type &&
+            selectedUnitToPlace.level === existingUnit.level &&
+            existingUnit.level < 3) { // 仮の最大レベル3
+          // マージ処理
+          const mergedUnit: Unit = {
+            ...existingUnit,
+            id: `merged-${Date.now()}-${Math.random()}`,
+            level: existingUnit.level + 1,
+            hp: existingUnit.hp * 1.5, // 仮のステータス上昇
+            attackPower: existingUnit.attackPower * 1.2, // 仮のステータス上昇
+            // 他のステータスも更新
+          };
+          setSelectedUnitToPlace(null); // 配置後、選択状態をクリア
+          return prevUnits.filter(unit => unit.id !== existingUnit.id).concat(mergedUnit);
+        } else {
+          // マージできない場合は既存ユニットを削除
+          return prevUnits.filter(unit => unit.id !== existingUnit.id);
+        }
+      } else if (selectedUnitToPlace) {
+        // 選択中のユニットがあれば配置
+        const newUnit = { ...selectedUnitToPlace, x, y };
+        setSelectedUnitToPlace(null); // 配置後、選択状態をクリア
+        return [...prevUnits, newUnit];
       } else {
-        // 仮のユニットデータに攻撃関連のプロパティを追加
-        return [...prevUnits, {
-          id: `unit-${Date.now()}-${Math.random()}`,
-          type: 'basic',
-          x,
-          y,
-          hp: 100, // 仮のHP
-          attackPower: 20, // 仮の値
-          attackSpeed: 1,  // 仮の値 (1秒に1回)
-          range: 3,        // 仮の値 (3マス)
-          lastAttackTime: 0, // 初期値
-        }];
+        // 選択中のユニットがない場合は何もしない
+        console.log("配置するユニットが選択されていません。");
+        return prevUnits; // 変更なし
       }
     });
-  }, []);
+  }, [selectedUnitToPlace]); // selectedUnitToPlaceを依存配列に追加
 
   // 敵の出現ロジック
   const startWave = useCallback(() => {
@@ -77,6 +184,60 @@ export default function GameBoard() {
       }, i * 500); // 0.5秒ごとに敵を出現させる
     }
   }, [currentWave, isWaveActive]); // isWaveActiveを依存配列に追加
+
+  // 突然変異の生成 (仮のデータ)
+  const generateMutations = useCallback(() => {
+    const allMutations: Mutation[] = [
+      {
+        id: 'mut1',
+        name: '攻撃力強化',
+        description: '全てのユニットの攻撃力が10%上昇する。',
+        applyEffect: (resources, units, enemies) => ({
+          newResources: resources,
+          newUnits: units.map(unit => ({ ...unit, attackPower: unit.attackPower * 1.1 })),
+          newEnemies: enemies,
+        }),
+      },
+      {
+        id: 'mut2',
+        name: '培養液ボーナス',
+        description: 'ウェーブクリア時に獲得する培養液が20%増加する。',
+        applyEffect: (resources, units, enemies) => ({
+          newResources: { ...resources, cultureFluid: resources.cultureFluid }, // この効果はウェーブクリア時に別途処理
+          newUnits: units,
+          newEnemies: enemies,
+        }),
+      },
+      {
+        id: 'mut3',
+        name: 'HP回復',
+        description: 'ラスト・サンプルのHPが20回復する。',
+        applyEffect: (resources, units, enemies) => ({
+          newResources: resources,
+          newUnits: units,
+          newEnemies: enemies,
+        }),
+      },
+    ];
+    // ランダムに3つ選択 (ここでは仮に最初の3つ)
+    setAvailableMutations(allMutations.slice(0, 3));
+  }, []);
+
+  // 突然変異を選択した際の処理
+  const handleSelectMutation = useCallback((mutation: Mutation) => {
+    // 選択された突然変異の効果を適用
+    const { newResources, newUnits, newEnemies } = mutation.applyEffect(playerResources, units, enemies);
+    setPlayerResources(newResources);
+    setUnits(newUnits);
+    setEnemies(newEnemies); // 敵はクリアされているはずだが念のため
+
+    // HP回復の突然変異の場合、GameBoardのlastSampleHpを直接更新
+    if (mutation.id === 'mut3') {
+      setLastSampleHp(prevHp => Math.min(100, prevHp + 20)); // 最大HP100として仮定
+    }
+
+    setAvailableMutations(null); // 選択UIを非表示にする
+  }, [playerResources, units, enemies]);
 
   // ゲームループ
   useEffect(() => {
@@ -193,24 +354,50 @@ export default function GameBoard() {
         });
 
         // 敵のHPを更新し、HPが0になった敵を削除
-        setEnemies(prevEnemies =>
-          prevEnemies.map(enemy => {
+        setEnemies(prevEnemies => {
+          const updatedEnemies = prevEnemies.map(enemy => {
             if (hitEnemies[enemy.id]) {
               return { ...enemy, hp: enemy.hp - hitEnemies[enemy.id] };
             }
             return enemy;
-          }).filter(enemy => enemy.hp > 0) // HPが0以下の敵を削除
-        );
+          });
+
+          const defeatedEnemies = updatedEnemies.filter(enemy => enemy.hp <= 0);
+          if (defeatedEnemies.length > 0) {
+            setPlayerResources(prevResources => {
+              let newXp = prevResources.xp + defeatedEnemies.length * 10; // 敵1体につき10XP (仮)
+              let newCultureFluid = prevResources.cultureFluid + defeatedEnemies.length * 5; // 敵1体につき5培養液 (仮)
+              let newLevel = prevResources.level;
+
+              // レベルアップ判定
+              while (newLevel < XP_THRESHOLDS.length && newXp >= XP_THRESHOLDS[newLevel]) {
+                newLevel++;
+                console.log(`Player Leveled Up to Level ${newLevel}!`);
+                // レベルアップ時のボーナスやリセット処理があればここに追加
+              }
+
+              return {
+                cultureFluid: newCultureFluid,
+                xp: newXp,
+                level: newLevel,
+              };
+            });
+          }
+
+          return updatedEnemies.filter(enemy => enemy.hp > 0); // HPが0以下の敵を削除
+        });
 
         return newProjectiles; // 衝突した弾丸は削除される
       });
 
       // ゲームオーバー判定
       if (lastSampleHp <= 0) {
-        console.log("GAME OVER!"); // 仮のゲームオーバー表示
+        console.log("GAME OVER!");
         if (animationFrameIdRef.current) {
           cancelAnimationFrame(animationFrameIdRef.current);
         }
+        // ゲームオーバー画面を表示するためにisWaveActiveをfalseにする
+        setIsWaveActive(false);
         return; // ゲームループを停止
       }
 
@@ -220,6 +407,11 @@ export default function GameBoard() {
         setIsWaveActive(false); // ウェーブを非アクティブにする
         setAllEnemiesSpawned(false); // フラグをリセット
         setProjectiles([]); // 残っている弾丸をクリア
+
+        // 特定のウェーブで突然変異の選択をトリガー (例: 3ウェーブごと)
+        if (currentWave > 0 && currentWave % 3 === 0) {
+          generateMutations();
+        }
       }
 
       animationFrameIdRef.current = requestAnimationFrame(gameLoop);
@@ -232,10 +424,33 @@ export default function GameBoard() {
         cancelAnimationFrame(animationFrameIdRef.current);
       }
     };
-  }, [enemies, units, lastSampleHp, isWaveActive, currentWave, allEnemiesSpawned]); // 依存配列を更新
+  }, [enemies, units, lastSampleHp, isWaveActive, currentWave, allEnemiesSpawned, playerResources.level, generateMutations]); // 依存配列にgenerateMutationsを追加
+
+  // コンポーネントマウント時にショップを初期化
+  useEffect(() => {
+    generateShopUnits();
+  }, [generateShopUnits]);
 
   return (
     <div className="relative w-[600px] h-[1000px] bg-green-800 overflow-hidden border-4 border-gray-900">
+      {/* ショップコンポーネント */}
+      {!isWaveActive && lastSampleHp > 0 && !availableMutations && ( // 突然変異選択中はショップを非表示
+        <Shop
+          shopUnits={shopUnits}
+          playerResources={playerResources}
+          onBuyUnit={buyUnit}
+          onReroll={rerollShop}
+        />
+      )}
+
+      {/* 突然変異選択コンポーネント */}
+      {availableMutations && (
+        <MutationSelection
+          mutations={availableMutations}
+          onSelectMutation={handleSelectMutation}
+        />
+      )}
+
       {/* グリッド描画 */}
       {Array.from({ length: BOARD_HEIGHT }).map((_, rowIndex) => (
         Array.from({ length: BOARD_WIDTH }).map((__, colIndex) => (
@@ -323,11 +538,13 @@ export default function GameBoard() {
         ウェーブ: {currentWave}
       </div>
 
-      {/* ゲームオーバー表示 (仮) */}
+      {/* ゲームオーバー表示 */}
       {lastSampleHp <= 0 && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-75 text-white text-5xl font-bold">
-          GAME OVER
-        </div>
+        <GameOverScreen
+          waveReached={currentWave}
+          onRetry={resetGame}
+          onGoToMainMenu={() => console.log("メインメニューへ")} // 将来的に実装
+        />
       )}
     </div>
   );
