@@ -1,7 +1,8 @@
 'use client'; // Client Componentとしてマーク
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Unit, Enemy, Projectile, PlayerResources, Mutation } from '@/lib/types';
+import { Unit, Enemy, Projectile, PlayerResources, Mutation, UnitType } from '@/lib/types';
+import { unitDefinitions, UnitDefinition } from '@/lib/unitDefinitions'; // unitDefinitionsをインポート
 import Shop from './Shop'; // Shopコンポーネントをインポート
 import MutationSelection from './MutationSelection'; // MutationSelectionコンポーネントをインポート
 import GameOverScreen from './GameOverScreen'; // GameOverScreenコンポーネントをインポート
@@ -35,23 +36,23 @@ export default function GameBoard() {
 
   // 仮のユニット生成関数 (ショップ用)
   const generateRandomUnit = useCallback((): Unit => {
-    // ユニットの種類を増やす場合はここを拡張
-    const unitTypes: ('basic' | 'archer' | 'shield')[] = ['basic', 'archer', 'shield'];
-    const randomType = unitTypes[Math.floor(Math.random() * unitTypes.length)];
-    const baseCost = 10; // 仮の基本コスト
+    const allUnitTypes = Object.keys(unitDefinitions) as UnitType[];
+    const randomType = allUnitTypes[Math.floor(Math.random() * allUnitTypes.length)];
+    const definition = unitDefinitions[randomType];
 
     return {
       id: `shop-unit-${Date.now()}-${Math.random()}`,
       x: -1, // ショップのユニットは盤面にいないので仮の値
       y: -1,
-      type: randomType,
-      hp: 100,
-      attackPower: 20,
-      attackSpeed: 1,
-      range: 3,
+      type: definition.type,
+      hp: definition.baseHp,
+      attackPower: definition.baseAttackPower,
+      attackSpeed: definition.baseAttackSpeed,
+      range: definition.baseRange,
       lastAttackTime: 0,
-      cost: baseCost + Math.floor(Math.random() * 5), // コストにばらつき
+      cost: definition.baseCost + Math.floor(Math.random() * 5), // コストにばらつき
       level: 1, // 初期レベル
+      icon: definition.icon,
     };
   }, []);
 
@@ -120,14 +121,39 @@ export default function GameBoard() {
         if (selectedUnitToPlace &&
             selectedUnitToPlace.type === existingUnit.type &&
             selectedUnitToPlace.level === existingUnit.level &&
-            existingUnit.level < 3) { // 仮の最大レベル3
+            existingUnit.level < 3) {
           // マージ処理
+          const definition = unitDefinitions[existingUnit.type];
+          let newHp = existingUnit.hp;
+          let newAttackPower = existingUnit.attackPower;
+          let newAttackSpeed = existingUnit.attackSpeed;
+          let newRange = existingUnit.range;
+
+          if (existingUnit.level === 1) {
+            // Lv1 -> Lv2
+            const level2Evo = definition.evolution.level2;
+            newHp = definition.baseHp * level2Evo.hpMultiplier;
+            newAttackPower = definition.baseAttackPower * (level2Evo.attackPowerMultiplier ?? 1);
+            newAttackSpeed = definition.baseAttackSpeed * (level2Evo.attackSpeedMultiplier ?? 1);
+            newRange = definition.baseRange * (level2Evo.rangeMultiplier ?? 1);
+          } else if (existingUnit.level === 2) {
+            // Lv2 -> Lv3 (AまたはBを選択させるロジックは後で追加)
+            // ここでは仮にAに進化
+            const level3A = definition.evolution.level3A;
+            newHp = definition.baseHp * level3A.hpMultiplier;
+            newAttackPower = definition.baseAttackPower * level3A.attackPowerMultiplier;
+            newAttackSpeed = definition.baseAttackSpeed * (level3A.attackSpeedMultiplier ?? 1);
+            newRange = definition.baseRange * (level3A.rangeMultiplier ?? 1);
+          }
+
           const mergedUnit: Unit = {
             ...existingUnit,
             id: `merged-${Date.now()}-${Math.random()}`,
             level: existingUnit.level + 1,
-            hp: existingUnit.hp * 1.5, // 仮のステータス上昇
-            attackPower: existingUnit.attackPower * 1.2, // 仮のステータス上昇
+            hp: newHp,
+            attackPower: newAttackPower,
+            attackSpeed: newAttackSpeed,
+            range: newRange,
             // 他のステータスも更新
           };
           setSelectedUnitToPlace(null); // 配置後、選択状態をクリア
@@ -469,18 +495,27 @@ export default function GameBoard() {
       ))}
 
       {/* ユニット描画 */}
-      {units.map(unit => (
-        <div
-          key={unit.id}
-          className="absolute bg-blue-500 rounded-sm"
-          style={{
-            width: CELL_SIZE - 4,
-            height: CELL_SIZE - 4,
-            left: unit.x * CELL_SIZE + 2,
-            top: unit.y * CELL_SIZE + 2,
-          }}
-        />
-      ))}
+      {units.map(unit => {
+        const unitBgColor = unit.level === 1 ? 'bg-amber-700' : // 銅色
+                            unit.level === 2 ? 'bg-slate-400' : // 銀色
+                            'bg-yellow-400'; // 金色 (Lv3)
+        const IconComponent = unit.icon;
+
+        return (
+          <div
+            key={unit.id}
+            className={`absolute ${unitBgColor} rounded-sm flex items-center justify-center`}
+            style={{
+              width: CELL_SIZE - 4,
+              height: CELL_SIZE - 4,
+              left: unit.x * CELL_SIZE + 2,
+              top: unit.y * CELL_SIZE + 2,
+            }}
+          >
+            {IconComponent && <IconComponent className="w-8 h-8 text-white" />}
+          </div>
+        );
+      })}
 
       {/* 敵描画 */}
       {enemies.map(enemy => (

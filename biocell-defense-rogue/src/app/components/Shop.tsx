@@ -1,7 +1,8 @@
 'use client';
 
 import React from 'react';
-import { Unit, PlayerResources } from '@/lib/types';
+import { Unit, PlayerResources, UnitType } from '@/lib/types';
+import { unitDefinitions } from '@/lib/unitDefinitions';
 
 interface ShopProps {
   shopUnits: Unit[];
@@ -21,9 +22,9 @@ export default function Shop({ shopUnits, playerResources, onBuyUnit, onReroll }
             className="bg-gray-700 p-3 rounded-md text-white text-center cursor-pointer hover:bg-gray-600 transition-colors"
             onClick={() => onBuyUnit(unit)}
           >
-            <div className="text-lg font-semibold">{unit.type}</div>
+            {unit.icon && <unit.icon className="w-10 h-10 text-white mx-auto mb-2" />}
+            <div className="text-lg font-semibold">{unitDefinitions[unit.type as UnitType].name}</div>
             <div className="text-sm">コスト: {unit.cost} 培養液</div>
-            {/* 将来的にユニットの画像や詳細情報を表示 */}
           </div>
         ))}
       </div>

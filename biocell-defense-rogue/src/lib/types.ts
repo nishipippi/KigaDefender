@@ -1,8 +1,10 @@
+export type UnitType = 'assault-bacterium' | 'archer-bacterium' | 'shield-cell' | 'macrophage' | 'culture-yeast' | 'aura-yeast' | 'slow-phage' | 'corrosive-phage';
+
 export type Unit = {
   id: string; // ユニットの一意なID
   x: number;  // 盤面上のX座標 (列)
   y: number;  // 盤面上のY座標 (行)
-  type: 'basic' | 'archer' | 'shield'; // 'basic', 'archer', 'shield', etc.
+  type: UnitType;
   hp: number;
   attackPower: number; // 追加
   attackSpeed: number; // 追加 (秒間攻撃回数)
@@ -10,6 +12,7 @@ export type Unit = {
   lastAttackTime: number; // 追加: 最後に攻撃したタイムスタンプ
   cost: number; // 追加: ショップでの購入コスト
   level: number; // 追加: ユニットのレベル
+  icon: React.FC<React.SVGProps<SVGSVGElement>>; // 追加: ユニットのアイコン
 };
 
 // セルの状態を表す型 (ユニットが存在するかどうか)
